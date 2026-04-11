@@ -1,7 +1,7 @@
 FROM python:3.12-slim-bookworm
 
-LABEL org.opencontainers.image.title="EXIF-Snatcher" \
-      org.opencontainers.image.description="MCP server: Streamable HTTP, media fetch, EXIF/metadata extraction" \
+LABEL org.opencontainers.image.title="ExifSniffer" \
+      org.opencontainers.image.description="ExifSniffer MCP server: Streamable HTTP, media fetch, EXIF/metadata extraction" \
       org.opencontainers.image.version="0.1.1"
 
 RUN apt-get update \

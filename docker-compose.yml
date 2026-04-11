@@ -1,11 +1,11 @@
 services:
-  exif-snatcher:
+  exifsniffer:
     build: .
-    image: exif-snatcher:local
+    image: exifsniffer:local
     ports:
       - "3000:3000"
     volumes:
-      - exif_snatcher_data:/data
+      - exifsniffer_data:/data
     environment:
       DATA_DIR: /data
       HOST: "0.0.0.0"
@@ -13,4 +13,4 @@ services:
       MAX_DOWNLOAD_BYTES: "100000000"
 
 volumes:
-  exif_snatcher_data:
+  exifsniffer_data:

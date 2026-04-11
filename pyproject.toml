@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "exifsniffer"
 version = "0.1.1"
-description = "MCP Streamable HTTP server: fetch remote media, extract EXIF and container metadata as JSON lists"
+description = "ExifSniffer: MCP Streamable HTTP server; fetch remote media, extract EXIF and container metadata as JSON lists"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

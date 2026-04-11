@@ -1,15 +1,15 @@
-# EXIF-Snatcher
+# ExifSniffer MCP Server
 
 Container-ready [Model Context Protocol](https://modelcontextprotocol.io) server (Python, official `mcp` SDK) exposing **Streamable HTTP** on `/mcp`. Tools download remote media and extract image EXIF / video container metadata as **JSON arrays** of `{path, value}` rows.
 
-The Python package and CLI remain **`exifsniffer`** (`python -m exifsniffer`, console script `exifsniffer`).
+The Python package and CLI are **`exifsniffer`** (`python -m exifsniffer`, console script `exifsniffer`).
 
-## Repository
+## Git
 
-Create a GitHub repository named **EXIF-Snatcher**, then:
+After you create a repository on your Git host, add it as `origin` and push (branch name may vary):
 
 ```bash
-git remote add origin https://github.com/<your-username>/EXIF-Snatcher.git
+git remote add origin <your-repository-url>
 git push -u origin main
 ```
 
@@ -56,7 +56,7 @@ python -m exifsniffer
 docker compose up --build
 ```
 
-The image `exif-snatcher:local` runs the app as a non-root user; data persists in the `exif_snatcher_data` volume.
+The image `exifsniffer:local` runs the app as a non-root user; data persists in the `exifsniffer_data` volume.
 
 ## Cursor `mcp.json` entry
 
@@ -65,7 +65,7 @@ After the server listens on port `3000` (host), add:
 ```json
 {
   "mcpServers": {
-    "exif-snatcher": {
+    "exif-sniffer": {
       "url": "http://localhost:3000/mcp"
     }
   }
