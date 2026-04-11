@@ -1,0 +1,16 @@
+services:
+  exif-snatcher:
+    build: .
+    image: exif-snatcher:local
+    ports:
+      - "3000:3000"
+    volumes:
+      - exif_snatcher_data:/data
+    environment:
+      DATA_DIR: /data
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      MAX_DOWNLOAD_BYTES: "100000000"
+
+volumes:
+  exif_snatcher_data:
