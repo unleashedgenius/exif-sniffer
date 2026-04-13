@@ -1,7 +1,7 @@
 services:
   exifsniffer:
     build: .
-    image: exifsniffer:local
+    image: exifsniffer
     ports:
       - "3000:3000"
     volumes:
