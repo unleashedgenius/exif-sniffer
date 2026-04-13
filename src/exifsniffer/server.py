@@ -13,6 +13,12 @@ from pydantic import Field
 from exifsniffer.exif_edit import update_image_exif
 from exifsniffer.extract import extract_metadata_list, flatten_to_metadata_list
 from exifsniffer.fetch import download_url_to_path
+from exifsniffer.filesystem_access import (
+    fs_create_directory,
+    fs_list_files,
+    fs_read_file,
+    fs_write_file,
+)
 from exifsniffer.local_media import list_image_relative_paths, parse_local_media_root
 from exifsniffer.paths import resolve_under_root
 from exifsniffer.settings import load_settings
@@ -58,6 +64,29 @@ EXTRACT_LOCAL_MEDIA_METADATA_DESCRIPTION = (
     "DATA_DIR via output_json_relative_path."
 )
 
+LIST_FILES_FS_DESCRIPTION = (
+    "List files and subdirectories in the top level of the configured base directory "
+    "(environment LOCAL_MEDIA_BASE), matching the LM Studio filesystem-access plugin. "
+    "Returns JSON rows; set LOCAL_MEDIA_BASE to an absolute path (same role as plugin "
+    "field Base Directory / folderName)."
+)
+
+READ_FILE_FS_DESCRIPTION = (
+    "Read a UTF-8 text file under LOCAL_MEDIA_BASE. Parameter file_name is relative to that "
+    "base with the same naming rules as the LM Studio filesystem-access plugin "
+    "(letters, digits, underscore, hyphen, dot, slash; no '..')."
+)
+
+WRITE_FILE_FS_DESCRIPTION = (
+    "Write or overwrite a UTF-8 text file under LOCAL_MEDIA_BASE, creating parent "
+    "subdirectories as needed (LM Studio filesystem-access plugin semantics)."
+)
+
+CREATE_DIRECTORY_FS_DESCRIPTION = (
+    "Create a subdirectory under LOCAL_MEDIA_BASE (mkdir -p semantics), same idea as the "
+    "LM Studio filesystem-access create_directory tool."
+)
+
 UPDATE_LOCAL_MEDIA_EXIF_DESCRIPTION = (
     "Update or remove EXIF tags on a JPEG or WebP file under local_media_root (piexif). "
     "image_relative_path is relative to that root. set_tags maps IFD names "
@@ -75,7 +104,9 @@ mcp = FastMCP(
         "ExifSniffer downloads remote media and extracts EXIF/metadata as a flat JSON list of "
         "path/value entries. Local media tools take an absolute local_media_root directory plus "
         "paths relative to that root (no '..' segments) to read or update EXIF on bind-mounted or "
-        "host-visible folders. Tools return JSON-compatible lists, not narrative reports."
+        "host-visible folders. When LOCAL_MEDIA_BASE is set, list_files/read_file/write_file/"
+        "create_directory mirror the LM Studio filesystem-access plugin (single base path, "
+        "relative file names). Tools return JSON-compatible lists, not narrative reports."
     ),
     host=os.environ.get("HOST", "0.0.0.0"),
     port=int(os.environ.get("PORT", "3000")),
@@ -293,3 +324,55 @@ async def update_local_media_exif(
         remove_tags=remove_tags or {},
     )
     return flatten_to_metadata_list(summary, prefix="local_media.exif_update")
+
+
+def _optional_filesystem_base() -> Path | None:
+    settings = load_settings()
+    if not settings.local_media_base:
+        return None
+    return Path(settings.local_media_base)
+
+
+@mcp.tool(name="list_files", description=LIST_FILES_FS_DESCRIPTION)
+async def list_files() -> list[dict[str, Any]]:
+    return fs_list_files(_optional_filesystem_base())
+
+
+@mcp.tool(name="read_file", description=READ_FILE_FS_DESCRIPTION)
+async def read_file(
+    file_name: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Relative path under LOCAL_MEDIA_BASE (same rules as LM Studio plugin).",
+        ),
+    ],
+) -> list[dict[str, Any]]:
+    return fs_read_file(_optional_filesystem_base(), file_name)
+
+
+@mcp.tool(name="write_file", description=WRITE_FILE_FS_DESCRIPTION)
+async def write_file(
+    file_name: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Relative path under LOCAL_MEDIA_BASE (same rules as LM Studio plugin).",
+        ),
+    ],
+    content: Annotated[str, Field(description="UTF-8 text content for the file.")],
+) -> list[dict[str, Any]]:
+    return fs_write_file(_optional_filesystem_base(), file_name, content)
+
+
+@mcp.tool(name="create_directory", description=CREATE_DIRECTORY_FS_DESCRIPTION)
+async def create_directory(
+    directory_name: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Directory path relative to LOCAL_MEDIA_BASE.",
+        ),
+    ],
+) -> list[dict[str, Any]]:
+    return fs_create_directory(_optional_filesystem_base(), directory_name)

@@ -23,14 +23,25 @@ git push -u origin main
 | `list_local_media_images` | Lists images under a caller-supplied absolute `local_media_root` (optional subdirectory, optional recursion, `max_files` cap) |
 | `extract_local_media_metadata_to_json` | Same extraction as `extract_metadata_to_json` but reads the source from `local_media_root` + relative path; JSON output still goes under `DATA_DIR` |
 | `update_local_media_exif` | Reads and rewrites EXIF on `.jpg` / `.jpeg` / `.webp` under `local_media_root` using `set_tags` and `remove_tags` (piexif; in-place) |
+| `list_files` | When `LOCAL_MEDIA_BASE` is set: list top-level names under that directory (same idea as [taderich73/filesystem-access](https://lmstudio.ai/taderich73/filesystem-access) `list_files`) |
+| `read_file` | Read a UTF-8 file under `LOCAL_MEDIA_BASE` via a relative `file_name` (plugin-style path rules) |
+| `write_file` | Write UTF-8 content under `LOCAL_MEDIA_BASE`, creating parent dirs as needed |
+| `create_directory` | Create a subdirectory under `LOCAL_MEDIA_BASE` |
 
 Each list element is an object: `{"path": "<dot or bracket path>", "value": ...}` where `value` is a leaf (string, number, boolean, or small JSON-serializable structure).
+
+### LM Studio `filesystem-access` parity
+
+The upstream plugin stores a **Base Directory** in plugin settings (`createConfigSchematics` field `folderName`, type `string`, display name *Base Directory*, placeholder `/path/to/directory`) and reads it with `ctl.getPluginConfig(configSchematics).get("folderName")`. Tools use Node `fs` / `path.join` plus an `isPathWithinBaseDir` guard.
+
+This server exposes the same **single base path** as the environment variable `LOCAL_MEDIA_BASE` (configure it in Docker Compose, Kubernetes manifests, or your process manager—those UIs play the same role as the plugin text field). The four tools above mirror `list_files`, `read_file`, `write_file`, and `create_directory` behavior and naming.
 
 ## Configuration (environment)
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DATA_DIR` | `/data` | Root directory for all relative paths (including JSON outputs from local media extraction) |
+| `LOCAL_MEDIA_BASE` | unset | **Base directory** for `list_files` / `read_file` / `write_file` / `create_directory` (equivalent to the LM Studio plugin *Base Directory* field). Use an absolute path, e.g. `/path/to/directory` or `/data` inside Docker |
 | `HOST` | `0.0.0.0` | Bind address |
 | `PORT` | `3000` | Listen port |
 | `MAX_DOWNLOAD_BYTES` | `100000000` | Maximum download size |

@@ -10,6 +10,10 @@ services:
       # - /path/on/host/photos:/media:rw
     environment:
       DATA_DIR: /data
+      # Base directory for list_files / read_file / write_file / create_directory (LM Studio
+      # filesystem-access "Base Directory" equivalent). Defaults to unset; set to /data to
+      # scope those tools to the same volume as DATA_DIR.
+      LOCAL_MEDIA_BASE: /data
       HOST: "0.0.0.0"
       PORT: "3000"
       MAX_DOWNLOAD_BYTES: "100000000"
