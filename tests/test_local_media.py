@@ -1,12 +1,11 @@
-"""Tests for LOCAL_MEDIA_ROOT listing and settings."""
+"""Tests for local media root parsing and listing."""
 
 from __future__ import annotations
 
 import pytest
 
-from exifsniffer.local_media import list_image_relative_paths, require_local_media_root
+from exifsniffer.local_media import list_image_relative_paths, parse_local_media_root
 from exifsniffer.paths import resolve_under_root
-from exifsniffer.settings import load_settings
 
 
 def test_list_images_non_recursive(tmp_path) -> None:
@@ -46,16 +45,25 @@ def test_resolve_rejects_escape(tmp_path) -> None:
         resolve_under_root(root, "../outside")
 
 
-def test_require_local_media_root_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LOCAL_MEDIA_ROOT", raising=False)
-    settings = load_settings()
-    with pytest.raises(ValueError, match="LOCAL_MEDIA_ROOT"):
-        require_local_media_root(settings)
+def test_parse_local_media_root_requires_absolute() -> None:
+    with pytest.raises(ValueError, match="absolute"):
+        parse_local_media_root("photos/library")
 
 
-def test_require_local_media_root_ok(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_parse_local_media_root_ok(tmp_path) -> None:
     root = tmp_path / "host"
     root.mkdir()
-    monkeypatch.setenv("LOCAL_MEDIA_ROOT", str(root))
-    settings = load_settings()
-    assert require_local_media_root(settings) == root.resolve()
+    assert parse_local_media_root(str(root)) == root.resolve()
+
+
+def test_parse_local_media_root_rejects_missing(tmp_path) -> None:
+    missing = tmp_path / "nope"
+    with pytest.raises(ValueError, match="does not exist"):
+        parse_local_media_root(str(missing))
+
+
+def test_parse_local_media_root_rejects_file(tmp_path) -> None:
+    f = tmp_path / "file.txt"
+    f.write_text("x", encoding="utf-8")
+    with pytest.raises(ValueError, match="not a directory"):
+        parse_local_media_root(str(f))

@@ -13,7 +13,7 @@ from pydantic import Field
 from exifsniffer.exif_edit import update_image_exif
 from exifsniffer.extract import extract_metadata_list, flatten_to_metadata_list
 from exifsniffer.fetch import download_url_to_path
-from exifsniffer.local_media import list_image_relative_paths, require_local_media_root
+from exifsniffer.local_media import list_image_relative_paths, parse_local_media_root
 from exifsniffer.paths import resolve_under_root
 from exifsniffer.settings import load_settings
 
@@ -37,29 +37,30 @@ EXTRACT_METADATA_DESCRIPTION = (
     "true for extra JPEG piexif sections. Output file is UTF-8 JSON array format."
 )
 
-GET_LOCAL_MEDIA_SCOPE_DESCRIPTION = (
-    "Report whether LOCAL_MEDIA_ROOT is configured for host-scoped media. When set, it is the "
-    "absolute directory (usually a Docker bind mount) inside the server filesystem; all other "
-    "local media tools accept paths relative to that root with no '..' segments. Returns the same "
-    "flat JSON list shape as other tools."
+VALIDATE_LOCAL_MEDIA_ROOT_DESCRIPTION = (
+    "Check whether local_media_root is usable: must be an absolute path to an existing directory "
+    "on the server (e.g. a Docker bind mount visible inside the container). Returns a flat JSON "
+    "list with local_media.usable (boolean), local_media.resolved_root, and local_media.error "
+    "when unusable."
 )
 
 LIST_LOCAL_MEDIA_IMAGES_DESCRIPTION = (
-    "List image files under LOCAL_MEDIA_ROOT. Parameter relative_directory is relative to that "
-    "root (empty string means the root itself). Set recursive true to include subfolders. "
-    "Respects max_files (default 500, hard cap 5000). Returns a JSON list of rows with path "
-    "local_media.images[i] and value as the relative POSIX path under LOCAL_MEDIA_ROOT."
+    "List image files under the given local_media_root (absolute directory path). "
+    "Parameter relative_directory is relative to that root (empty string means the root itself). "
+    "Set recursive true to include subfolders. Respects max_files (default 500, hard cap 5000). "
+    "Returns a JSON list of rows with path local_media.images[i] and value as the relative POSIX "
+    "path under local_media_root."
 )
 
 EXTRACT_LOCAL_MEDIA_METADATA_DESCRIPTION = (
-    "Like extract_metadata_to_json but the source file lives under LOCAL_MEDIA_ROOT "
+    "Like extract_metadata_to_json but the source file lives under local_media_root "
     "(source_relative_path is relative to that root). The JSON output is still written under "
-    "DATA_DIR via output_json_relative_path. Requires LOCAL_MEDIA_ROOT to be set."
+    "DATA_DIR via output_json_relative_path."
 )
 
 UPDATE_LOCAL_MEDIA_EXIF_DESCRIPTION = (
-    "Update or remove EXIF tags on a JPEG or WebP file under LOCAL_MEDIA_ROOT (piexif). "
-    "image_relative_path is relative to LOCAL_MEDIA_ROOT. set_tags maps IFD names "
+    "Update or remove EXIF tags on a JPEG or WebP file under local_media_root (piexif). "
+    "image_relative_path is relative to that root. set_tags maps IFD names "
     "(0th, Exif, GPS, Interop, 1st) to objects mapping Exif tag names (e.g. Copyright, "
     "ImageDescription) to new values; strings are stored as UTF-8 bytes. For Exif.UserComment "
     "with a string value, Unicode EXIF user comment encoding is applied. remove_tags maps IFD "
@@ -72,9 +73,9 @@ mcp = FastMCP(
     name="exif-sniffer",
     instructions=(
         "ExifSniffer downloads remote media and extracts EXIF/metadata as a flat JSON list of "
-        "path/value entries. When LOCAL_MEDIA_ROOT is set, additional tools read and update EXIF on "
-        "files under that host bind-mounted directory using paths relative to that root. "
-        "Tools return JSON-compatible lists, not narrative reports."
+        "path/value entries. Local media tools take an absolute local_media_root directory plus "
+        "paths relative to that root (no '..' segments) to read or update EXIF on bind-mounted or "
+        "host-visible folders. Tools return JSON-compatible lists, not narrative reports."
     ),
     host=os.environ.get("HOST", "0.0.0.0"),
     port=int(os.environ.get("PORT", "3000")),
@@ -145,31 +146,47 @@ async def extract_metadata_to_json(
     return rows
 
 
-@mcp.tool(name="get_local_media_scope", description=GET_LOCAL_MEDIA_SCOPE_DESCRIPTION)
-async def get_local_media_scope() -> list[dict[str, Any]]:
-    settings = load_settings()
-    raw = settings.local_media_root
-    if not raw:
-        return flatten_to_metadata_list(
-            {"configured": False, "local_media_root": None},
-            prefix="local_media",
-        )
-    root = Path(raw).expanduser().resolve()
-    summary = {
-        "configured": True,
-        "local_media_root": raw,
-        "resolved_root": str(root),
-        "exists_and_is_dir": root.is_dir(),
-    }
+@mcp.tool(name="validate_local_media_root", description=VALIDATE_LOCAL_MEDIA_ROOT_DESCRIPTION)
+async def validate_local_media_root(
+    local_media_root: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Absolute path to the directory to validate (e.g. /media/photos).",
+        ),
+    ],
+) -> list[dict[str, Any]]:
+    try:
+        root = parse_local_media_root(local_media_root)
+        summary: dict[str, Any] = {
+            "usable": True,
+            "resolved_root": str(root),
+            "exists_and_is_dir": True,
+            "error": None,
+        }
+    except ValueError as exc:
+        summary = {
+            "usable": False,
+            "resolved_root": None,
+            "exists_and_is_dir": False,
+            "error": str(exc),
+        }
     return flatten_to_metadata_list(summary, prefix="local_media")
 
 
 @mcp.tool(name="list_local_media_images", description=LIST_LOCAL_MEDIA_IMAGES_DESCRIPTION)
 async def list_local_media_images(
+    local_media_root: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Absolute path to the root directory that contains your images.",
+        ),
+    ],
     relative_directory: Annotated[
         str,
         Field(
-            description="Directory relative to LOCAL_MEDIA_ROOT to scan (use '' for the root).",
+            description="Directory relative to local_media_root to scan (use '' for the root).",
         ),
     ] = "",
     recursive: Annotated[
@@ -181,8 +198,7 @@ async def list_local_media_images(
         Field(ge=1, le=5000, description="Maximum number of image paths to return."),
     ] = 500,
 ) -> list[dict[str, Any]]:
-    settings = load_settings()
-    root = require_local_media_root(settings)
+    root = parse_local_media_root(local_media_root)
     rels = list_image_relative_paths(
         root,
         relative_directory,
@@ -197,11 +213,18 @@ async def list_local_media_images(
 
 @mcp.tool(name="extract_local_media_metadata_to_json", description=EXTRACT_LOCAL_MEDIA_METADATA_DESCRIPTION)
 async def extract_local_media_metadata_to_json(
+    local_media_root: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Absolute path to the root directory that contains your source file.",
+        ),
+    ],
     source_relative_path: Annotated[
         str,
         Field(
             min_length=1,
-            description="Path relative to LOCAL_MEDIA_ROOT to an image or video file.",
+            description="Path relative to local_media_root to an image or video file.",
         ),
     ],
     output_json_relative_path: Annotated[
@@ -219,7 +242,7 @@ async def extract_local_media_metadata_to_json(
     ] = False,
 ) -> list[dict[str, Any]]:
     settings = load_settings()
-    local_root = require_local_media_root(settings)
+    local_root = parse_local_media_root(local_media_root)
     data_root = Path(settings.data_dir)
     src = resolve_under_root(local_root, source_relative_path)
     out = resolve_under_root(data_root, output_json_relative_path)
@@ -231,11 +254,18 @@ async def extract_local_media_metadata_to_json(
 
 @mcp.tool(name="update_local_media_exif", description=UPDATE_LOCAL_MEDIA_EXIF_DESCRIPTION)
 async def update_local_media_exif(
+    local_media_root: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Absolute path to the root directory that contains the image file.",
+        ),
+    ],
     image_relative_path: Annotated[
         str,
         Field(
             min_length=1,
-            description="Path relative to LOCAL_MEDIA_ROOT to a .jpg, .jpeg, or .webp file.",
+            description="Path relative to local_media_root to a .jpg, .jpeg, or .webp file.",
         ),
     ],
     set_tags: Annotated[
@@ -255,8 +285,7 @@ async def update_local_media_exif(
         ),
     ] = None,
 ) -> list[dict[str, Any]]:
-    settings = load_settings()
-    local_root = require_local_media_root(settings)
+    local_root = parse_local_media_root(local_media_root)
     src = resolve_under_root(local_root, image_relative_path)
     summary = update_image_exif(
         src,

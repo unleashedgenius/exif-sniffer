@@ -6,11 +6,10 @@ services:
       - "3000:3000"
     volumes:
       - exifsniffer_data:/data
-      # Optional: mount a host folder for read/write EXIF tools (set LOCAL_MEDIA_ROOT to the in-container path).
+      # Optional: mount a host folder and pass its in-container path as local_media_root in tool calls.
       # - /path/on/host/photos:/media:rw
     environment:
       DATA_DIR: /data
-      # LOCAL_MEDIA_ROOT: /media
       HOST: "0.0.0.0"
       PORT: "3000"
       MAX_DOWNLOAD_BYTES: "100000000"

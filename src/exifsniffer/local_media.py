@@ -1,4 +1,4 @@
-"""Browse image files under LOCAL_MEDIA_ROOT with traversal checks."""
+"""Browse image files under a user-supplied absolute root with traversal checks."""
 
 from __future__ import annotations
 
@@ -6,22 +6,25 @@ from pathlib import Path
 
 from exifsniffer.extract import IMAGE_SUFFIXES
 from exifsniffer.paths import resolve_under_root
-from exifsniffer.settings import Settings
 
 
-def require_local_media_root(settings: Settings) -> Path:
-    """Return resolved LOCAL_MEDIA_ROOT or raise with an actionable message."""
-    raw = settings.local_media_root
+def parse_local_media_root(path_str: str) -> Path:
+    """Resolve *path_str* to an existing directory (absolute path required)."""
+    raw = path_str.strip()
     if not raw:
+        raise ValueError("local_media_root must be a non-empty path.")
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
         raise ValueError(
-            "LOCAL_MEDIA_ROOT is not set. Configure it in the server environment to the host "
-            "directory that is bind-mounted into the container (or a local folder when running "
-            "bare metal), then use paths relative to that root in the local media tools."
+            "local_media_root must be an absolute path (e.g. /media/photos on Linux or "
+            "C:\\\\Photos on Windows)."
         )
-    root = Path(raw).expanduser().resolve()
-    if not root.is_dir():
-        raise ValueError(f"LOCAL_MEDIA_ROOT is not a directory: {root}")
-    return root
+    if not candidate.exists():
+        raise ValueError(f"local_media_root does not exist: {candidate}")
+    resolved = candidate.resolve()
+    if not resolved.is_dir():
+        raise ValueError(f"local_media_root is not a directory: {resolved}")
+    return resolved
 
 
 def list_image_relative_paths(
@@ -39,7 +42,7 @@ def list_image_relative_paths(
 
     base = resolve_under_root(root, relative_directory)
     if not base.is_dir():
-        raise NotADirectoryError(f"Not a directory under LOCAL_MEDIA_ROOT: {relative_directory!r}")
+        raise NotADirectoryError(f"Not a directory under local_media_root: {relative_directory!r}")
 
     root_resolved = root.resolve()
     out: list[str] = []
