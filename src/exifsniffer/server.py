@@ -15,9 +15,11 @@ from exifsniffer.extract import extract_metadata_list, flatten_to_metadata_list
 from exifsniffer.fetch import download_url_to_path
 from exifsniffer.filesystem_access import (
     fs_create_directory,
+    fs_extract_metadata,
     fs_list_files,
     fs_read_file,
     fs_write_file,
+    fs_write_metadata,
 )
 from exifsniffer.local_media import list_image_relative_paths, parse_local_media_root
 from exifsniffer.paths import resolve_under_root
@@ -87,6 +89,21 @@ CREATE_DIRECTORY_FS_DESCRIPTION = (
     "LM Studio filesystem-access create_directory tool."
 )
 
+EXTRACT_METADATA_FS_DESCRIPTION = (
+    "Read an image or video under LOCAL_MEDIA_BASE (source_file_name uses the same relative path "
+    "rules as read_file). Extract EXIF (Pillow), PNG tEXt/zTXt chunks, or ffprobe JSON for video; "
+    "returns the same flat JSON list of {path, value} rows as extract_metadata_to_json. "
+    "If output_json_file_name is set, also writes that UTF-8 JSON array under LOCAL_MEDIA_BASE."
+)
+
+WRITE_METADATA_FS_DESCRIPTION = (
+    "Update or remove EXIF on a .jpg, .jpeg, or .webp file under LOCAL_MEDIA_BASE (file_name relative "
+    "path, same rules as write_file). Uses piexif in place. set_tags maps IFD names "
+    "(0th, Exif, GPS, Interop, 1st) to {tag_name: value}; remove_tags maps IFD names to lists of "
+    "tag names to delete. Omit nulls for no-op sections. Same semantics as update_local_media_exif "
+    "but scoped to the configured base directory only."
+)
+
 UPDATE_LOCAL_MEDIA_EXIF_DESCRIPTION = (
     "Update or remove EXIF tags on a JPEG or WebP file under local_media_root (piexif). "
     "image_relative_path is relative to that root. set_tags maps IFD names "
@@ -101,12 +118,12 @@ UPDATE_LOCAL_MEDIA_EXIF_DESCRIPTION = (
 mcp = FastMCP(
     name="exif-sniffer",
     instructions=(
-        "ExifSniffer downloads remote media and extracts EXIF/metadata as a flat JSON list of "
-        "path/value entries. Local media tools take an absolute local_media_root directory plus "
-        "paths relative to that root (no '..' segments) to read or update EXIF on bind-mounted or "
-        "host-visible folders. When LOCAL_MEDIA_BASE is set, list_files/read_file/write_file/"
-        "create_directory mirror the LM Studio filesystem-access plugin (single base path, "
-        "relative file names). Tools return JSON-compatible lists, not narrative reports."
+        "When LOCAL_MEDIA_BASE is set, the server matches the LM Studio taderich73/filesystem-access "
+        "plugin: list_files, read_file, write_file, create_directory on one base directory, plus "
+        "extract_metadata and write_metadata for image/video metadata on paths under that same base. "
+        "All of these tools return JSON arrays of {path, value} rows (not prose). Additional tools "
+        "use DATA_DIR or caller-supplied absolute local_media_root for fetch, batch listing, or "
+        "mixed layouts."
     ),
     host=os.environ.get("HOST", "0.0.0.0"),
     port=int(os.environ.get("PORT", "3000")),
@@ -114,6 +131,120 @@ mcp = FastMCP(
     streamable_http_path="/mcp",
     json_response=False,
 )
+
+
+def _optional_filesystem_base() -> Path | None:
+    settings = load_settings()
+    if not settings.local_media_base:
+        return None
+    return Path(settings.local_media_base)
+
+
+@mcp.tool(name="list_files", description=LIST_FILES_FS_DESCRIPTION)
+async def list_files() -> list[dict[str, Any]]:
+    return fs_list_files(_optional_filesystem_base())
+
+
+@mcp.tool(name="read_file", description=READ_FILE_FS_DESCRIPTION)
+async def read_file(
+    file_name: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Relative path under LOCAL_MEDIA_BASE (same rules as LM Studio plugin).",
+        ),
+    ],
+) -> list[dict[str, Any]]:
+    return fs_read_file(_optional_filesystem_base(), file_name)
+
+
+@mcp.tool(name="write_file", description=WRITE_FILE_FS_DESCRIPTION)
+async def write_file(
+    file_name: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Relative path under LOCAL_MEDIA_BASE (same rules as LM Studio plugin).",
+        ),
+    ],
+    content: Annotated[str, Field(description="UTF-8 text content for the file.")],
+) -> list[dict[str, Any]]:
+    return fs_write_file(_optional_filesystem_base(), file_name, content)
+
+
+@mcp.tool(name="create_directory", description=CREATE_DIRECTORY_FS_DESCRIPTION)
+async def create_directory(
+    directory_name: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Directory path relative to LOCAL_MEDIA_BASE.",
+        ),
+    ],
+) -> list[dict[str, Any]]:
+    return fs_create_directory(_optional_filesystem_base(), directory_name)
+
+
+@mcp.tool(name="extract_metadata", description=EXTRACT_METADATA_FS_DESCRIPTION)
+async def extract_metadata(
+    source_file_name: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Image or video path relative to LOCAL_MEDIA_BASE (same rules as read_file).",
+        ),
+    ],
+    output_json_file_name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional relative path under LOCAL_MEDIA_BASE for a UTF-8 JSON array file "
+                "(created/overwritten). Omit or null to skip writing and only return rows."
+            ),
+        ),
+    ] = None,
+    include_piexif: Annotated[
+        bool,
+        Field(
+            description="If true, include a piexif section for JPEG (more rows).",
+        ),
+    ] = False,
+) -> list[dict[str, Any]]:
+    return fs_extract_metadata(
+        _optional_filesystem_base(),
+        source_file_name,
+        output_json_file_name,
+        include_piexif=include_piexif,
+    )
+
+
+@mcp.tool(name="write_metadata", description=WRITE_METADATA_FS_DESCRIPTION)
+async def write_metadata(
+    file_name: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Path to .jpg, .jpeg, or .webp relative to LOCAL_MEDIA_BASE.",
+        ),
+    ],
+    set_tags: Annotated[
+        dict[str, dict[str, Any]] | None,
+        Field(
+            description=(
+                "Map of IFD name to tag map, e.g. {\"0th\": {\"Copyright\": \"2026 Example\"}}. "
+                "Omit or pass null for no additions/updates."
+            ),
+        ),
+    ] = None,
+    remove_tags: Annotated[
+        dict[str, list[str]] | None,
+        Field(
+            description='Map of IFD name to list of tag names to remove, e.g. {"Exif": ["UserComment"]}. '
+            "Omit or pass null for no removals.",
+        ),
+    ] = None,
+) -> list[dict[str, Any]]:
+    return fs_write_metadata(_optional_filesystem_base(), file_name, set_tags, remove_tags)
 
 
 @mcp.tool(name="fetch_remote_media", description=FETCH_REMOTE_MEDIA_DESCRIPTION)
@@ -324,55 +455,3 @@ async def update_local_media_exif(
         remove_tags=remove_tags or {},
     )
     return flatten_to_metadata_list(summary, prefix="local_media.exif_update")
-
-
-def _optional_filesystem_base() -> Path | None:
-    settings = load_settings()
-    if not settings.local_media_base:
-        return None
-    return Path(settings.local_media_base)
-
-
-@mcp.tool(name="list_files", description=LIST_FILES_FS_DESCRIPTION)
-async def list_files() -> list[dict[str, Any]]:
-    return fs_list_files(_optional_filesystem_base())
-
-
-@mcp.tool(name="read_file", description=READ_FILE_FS_DESCRIPTION)
-async def read_file(
-    file_name: Annotated[
-        str,
-        Field(
-            min_length=1,
-            description="Relative path under LOCAL_MEDIA_BASE (same rules as LM Studio plugin).",
-        ),
-    ],
-) -> list[dict[str, Any]]:
-    return fs_read_file(_optional_filesystem_base(), file_name)
-
-
-@mcp.tool(name="write_file", description=WRITE_FILE_FS_DESCRIPTION)
-async def write_file(
-    file_name: Annotated[
-        str,
-        Field(
-            min_length=1,
-            description="Relative path under LOCAL_MEDIA_BASE (same rules as LM Studio plugin).",
-        ),
-    ],
-    content: Annotated[str, Field(description="UTF-8 text content for the file.")],
-) -> list[dict[str, Any]]:
-    return fs_write_file(_optional_filesystem_base(), file_name, content)
-
-
-@mcp.tool(name="create_directory", description=CREATE_DIRECTORY_FS_DESCRIPTION)
-async def create_directory(
-    directory_name: Annotated[
-        str,
-        Field(
-            min_length=1,
-            description="Directory path relative to LOCAL_MEDIA_BASE.",
-        ),
-    ],
-) -> list[dict[str, Any]]:
-    return fs_create_directory(_optional_filesystem_base(), directory_name)

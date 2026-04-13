@@ -3,14 +3,20 @@
 Mirrors taderich73/filesystem-access: join base + relative path, reject ``..`` segments in the
 relative string, and confine targets with :func:`exifsniffer.paths.resolve_under_root` (resolve +
 ``relative_to`` guard).
+
+Adds ``extract_metadata`` and ``write_metadata`` (EXIF) helpers that use the same base directory
+and ``file_name`` path rules as ``read_file`` / ``write_file``.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any
 
+from exifsniffer.exif_edit import update_image_exif
+from exifsniffer.extract import extract_metadata_list, flatten_to_metadata_list
 from exifsniffer.paths import resolve_under_root
 
 # Same character class as the reference plugin's zod regex: ^[\w./-]+$
@@ -125,3 +131,96 @@ def fs_create_directory(base: Path | None, directory_name: str) -> list[dict[str
     except OSError as exc:
         return [{"path": "create_directory.error", "value": f"Error: cannot create directory: {exc}"}]
     return [{"path": "create_directory.message", "value": f"Directory '{directory_name}' created successfully"}]
+
+
+def fs_extract_metadata(
+    base: Path | None,
+    source_file_name: str,
+    output_json_file_name: str | None,
+    *,
+    include_piexif: bool = False,
+) -> list[dict[str, Any]]:
+    """Extract image/video metadata from a file under *base*; optionally write a JSON array under *base*."""
+    try:
+        validate_relative_name(source_file_name, label="source_file_name")
+    except ValueError as exc:
+        return [{"path": "extract_metadata.error", "value": str(exc)}]
+    if output_json_file_name is not None and output_json_file_name.strip() != "":
+        try:
+            validate_relative_name(output_json_file_name, label="output_json_file_name")
+        except ValueError as exc:
+            return [{"path": "extract_metadata.error", "value": str(exc)}]
+    try:
+        root = configured_base_or_error(base)
+    except ValueError as exc:
+        return [{"path": "extract_metadata.error", "value": str(exc)}]
+    try:
+        full_source = resolve_under_root(root, source_file_name)
+    except ValueError as exc:
+        return [
+            {
+                "path": "extract_metadata.error",
+                "value": f"Error: File path is outside the configured directory: {exc}",
+            }
+        ]
+    if not full_source.is_file():
+        return [{"path": "extract_metadata.error", "value": "Error: File does not exist"}]
+    try:
+        rows = extract_metadata_list(full_source, include_piexif=include_piexif)
+    except (FileNotFoundError, OSError, RuntimeError) as exc:
+        return [{"path": "extract_metadata.error", "value": str(exc)}]
+    out_name = output_json_file_name.strip() if output_json_file_name else ""
+    if out_name:
+        try:
+            full_out = resolve_under_root(root, out_name)
+        except ValueError as exc:
+            return [
+                {
+                    "path": "extract_metadata.error",
+                    "value": f"Error: Output path is outside the configured directory: {exc}",
+                }
+            ]
+        try:
+            full_out.parent.mkdir(parents=True, exist_ok=True)
+            full_out.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
+        except OSError as exc:
+            return [{"path": "extract_metadata.error", "value": f"Error: cannot write JSON file: {exc}"}]
+    return rows
+
+
+def fs_write_metadata(
+    base: Path | None,
+    file_name: str,
+    set_tags: dict[str, dict[str, Any]] | None,
+    remove_tags: dict[str, list[str]] | None,
+    *,
+    path_prefix: str = "write_metadata",
+) -> list[dict[str, Any]]:
+    """Update EXIF on a JPEG/WebP under *base* (same path rules as ``write_file``)."""
+    err = f"{path_prefix}.error"
+    try:
+        validate_relative_name(file_name, label="file_name")
+    except ValueError as exc:
+        return [{"path": err, "value": str(exc)}]
+    try:
+        root = configured_base_or_error(base)
+    except ValueError as exc:
+        return [{"path": err, "value": str(exc)}]
+    try:
+        full_path = resolve_under_root(root, file_name)
+    except ValueError as exc:
+        return [
+            {
+                "path": err,
+                "value": f"Error: File path is outside the configured directory: {exc}",
+            }
+        ]
+    try:
+        summary = update_image_exif(
+            full_path,
+            set_tags=set_tags or {},
+            remove_tags=remove_tags or {},
+        )
+    except (FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
+        return [{"path": err, "value": str(exc)}]
+    return flatten_to_metadata_list(summary, prefix=path_prefix)
