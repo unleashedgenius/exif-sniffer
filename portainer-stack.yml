@@ -1,0 +1,31 @@
+# Portainer stack for ExifSniffer (MCP Streamable HTTP on /mcp).
+#
+# Deploy in Portainer: Stacks → Add stack → Web editor or Git repository.
+# - From Git: set repository to this repo; set Compose path to `portainer-stack.yml`.
+#   `build: .` uses the repo root as context.
+# - From Web editor: paste this file and either upload a tarball build context or
+#   replace `build` with a pre-built `image: your-registry/exifsniffer:tag`.
+#
+# MCP URL from LAN/docker host: http://<host>:3003/mcp
+
+services:
+  exifsniffer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: exifsniffer:local
+    container_name: exifsniffer
+    restart: unless-stopped
+    ports:
+      - "3003:3000"
+    volumes:
+      - exifsniffer_data:/data
+    environment:
+      DATA_DIR: /data
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      MAX_DOWNLOAD_BYTES: "100000000"
+
+volumes:
+  exifsniffer_data:
+    name: exifsniffer_data
