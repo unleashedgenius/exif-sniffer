@@ -19,6 +19,10 @@ git push -u origin main
 | --- | --- |
 | `fetch_remote_media` | HTTP(S) download into `DATA_DIR` with SSRF guards and size limits; returns a JSON list of metadata rows |
 | `extract_metadata_to_json` | Pillow EXIF for images; PNG **`tEXt`** / **`zTXt`** text chunks; `ffprobe` JSON for videos; writes a JSON **array** file and returns the same list |
+| `get_local_media_scope` | Reports whether `LOCAL_MEDIA_ROOT` is set and resolves that directory (host bind mount path as seen inside the server) |
+| `list_local_media_images` | Lists images under `LOCAL_MEDIA_ROOT` (optional subdirectory, optional recursion, `max_files` cap) |
+| `extract_local_media_metadata_to_json` | Same extraction as `extract_metadata_to_json` but reads the source file from `LOCAL_MEDIA_ROOT`; JSON output still goes under `DATA_DIR` |
+| `update_local_media_exif` | Reads and rewrites EXIF on `.jpg` / `.jpeg` / `.webp` under `LOCAL_MEDIA_ROOT` using `set_tags` and `remove_tags` (piexif; in-place) |
 
 Each list element is an object: `{"path": "<dot or bracket path>", "value": ...}` where `value` is a leaf (string, number, boolean, or small JSON-serializable structure).
 
@@ -27,6 +31,7 @@ Each list element is an object: `{"path": "<dot or bracket path>", "value": ...}
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DATA_DIR` | `/data` | Root directory for all relative paths |
+| `LOCAL_MEDIA_ROOT` | unset | Optional absolute path to a host directory (bind mount) for direct image access; paths in local-media tools are relative to this root |
 | `HOST` | `0.0.0.0` | Bind address |
 | `PORT` | `3000` | Listen port |
 | `MAX_DOWNLOAD_BYTES` | `100000000` | Maximum download size |
