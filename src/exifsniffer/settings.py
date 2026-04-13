@@ -1,4 +1,10 @@
-"""Runtime configuration from environment variables."""
+"""Runtime configuration from environment variables.
+
+``LOCAL_MEDIA_BASE`` is the MCP-side equivalent of the LM Studio Hub plugin
+*Base Directory* setting: upstream stores that path in config field ``folderName``
+(see taderich73/filesystem-access ``config.ts``); this server reads the same
+absolute path from the environment instead of plugin UI schematics.
+"""
 
 from __future__ import annotations
 
@@ -23,7 +29,9 @@ def _env_float(name: str, default: float) -> float:
 @dataclass(frozen=True)
 class Settings:
     data_dir: str
-    # Optional base for filesystem MCP tools (LM Studio plugin "Base Directory" equivalent).
+    # Absolute root for list_files / read_file / write_file / create_directory / extract_metadata /
+    # write_metadata — same role as plugin ``folderName`` (*Base Directory*: "The directory path
+    # where files will be stored.").
     local_media_base: str | None
     max_download_bytes: int
     connect_timeout_seconds: float
